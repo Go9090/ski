@@ -143,7 +143,6 @@
   <!-- HOME -->
   <section id="home" class="view active">
     <div id="workerBanner" class="warn" style="display:none; margin-bottom:12px;">👤 <b>担当者名が未設定です。</b>「設定」タブで自分の名前を入れてください。複数人で使うとき、誰の記録か分けるために必要です。</div>
-    <div id="backupBanner" class="warn" style="display:none; margin-bottom:12px;"></div>
     <div id="installBanner" class="warn" style="display:none; margin-bottom:12px; background:#dbeafe; border-color:#2563eb; color:#1e40af;">
       📲 <b>まず「ホーム画面に追加」してください。</b>Safariの共有ボタン → ホーム画面に追加。こうしないと7日間開かないと記録が消える恐れがあります。<br>
       <span style="font-size:11px; opacity:.85">追加後にこのアイコンから使えば消えません。 <a href="javascript:hideInstall()" style="color:#1e40af;text-decoration:underline">分かった（非表示）</a></span>
@@ -857,8 +856,9 @@ document.getElementById("periodTo").addEventListener("change",updatePeriodSummar
 function hideInstall(){ localStorage.setItem("ski_installAck","1"); document.getElementById("installBanner").style.display="none"; }
 function isStandalone(){ return (window.navigator.standalone===true) || (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches); }
 async function updateBackupBanner(){
-  const all=await allRecs();
   const el=document.getElementById("backupBanner");
+  if(!el) return;
+  const all=await allRecs();
   if(!all.length){ el.style.display="none"; return; }
   const last=localStorage.getItem("ski_lastBackup");
   const lastMs=last?Date.parse(last):0;
