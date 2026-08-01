@@ -331,7 +331,7 @@ function loadSettings(){
 function persistSettings(){ localStorage.setItem("ski_settings", JSON.stringify(settings)); }
 
 /* ============ 保存層（IndexedDB。使えない環境はメモリに自動切替）============ */
-let db=null, memMode=false, mem=[];
+let db=null, memMode=false, mem=[], recCache=[];
 function openDB(){
   return new Promise((res)=>{
     try{
@@ -641,8 +641,8 @@ function printDoc(){
 }
 
 /* ============ CSV / JSON ============ */
-async function exportCSV(){
-  const all=await allRecs();
+function exportCSV(){
+  const all=recCache;
   if(!all.length){ toast("記録がありません"); return; }
   let csv="﻿記録ID,担当者,登録日,登録時刻,種別,単価,写真,EXIF撮影日時,確定\n";
   all.forEach(r=>{
@@ -650,22 +650,36 @@ async function exportCSV(){
     const type=r.type==="season"?"シーズンレンタル":"通常レンタル";
     csv+=`${r.id},${r.worker||""},${ymd(d)},${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())},${type},${r.price},${r.hasPhoto?"有":"無"},${r.exif||""},${r.locked?"確定":""}\n`;
   });
-  download(csv,"ski-tune_"+ymd(new Date())+".csv","text/csv");
+  saveFile(csv,"ski-tune_"+ymd(new Date())+".csv","text/csv");
 }
-async function exportJSON(){
-  const all=await allRecs();
+function exportJSON(){
+  const all=recCache;
   const data={version:1, exportedAt:new Date().toISOString(), settings, records:all};
-  download(JSON.stringify(data),"ski-tune-backup_"+ymd(new Date())+".json","application/json");
+  saveFile(JSON.stringify(data),"ski-tune-backup_"+ymd(new Date())+".json","application/json");
 }
-function download(text,name,mime){
+const isMobile=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.maxTouchPoints>1 && /Mac/.test(navigator.platform));
+function markBackedUp(){ localStorage.setItem("ski_lastBackup", new Date().toISOString()); updateBackupBanner(); }
+function saveFile(text,name,mime){
   const blob=new Blob([text],{type:mime});
+  // iPhone/iPad: 共有シート →「ファイルに保存」→ iCloud Drive
+  if(isMobile && navigator.canShare){
+    try{
+      const file=new File([blob],name,{type:mime});
+      if(navigator.canShare({files:[file]})){
+        navigator.share({files:[file], title:name})
+          .then(()=>{ markBackedUp(); toast("保存先を選べます（“ファイル”→iCloud Drive）"); })
+          .catch(()=>{});
+        return;
+      }
+    }catch(e){}
+  }
+  // PC: ダウンロード
   const url=URL.createObjectURL(blob);
   const a=document.createElement("a"); a.href=url; a.download=name;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),3000);
-  localStorage.setItem("ski_lastBackup", new Date().toISOString());
-  toast("書き出しました。共有 →「ファイルに保存」→ iCloud Drive へ");
-  updateBackupBanner();
+  markBackedUp();
+  toast("書き出しました");
 }
 async function importJSON(e){
   const file=e.target.files[0]; if(!file) return;
@@ -764,6 +778,7 @@ async function renderList(){
 /* ============ ホーム更新 ============ */
 async function refreshHome(){
   const all=await allRecs();
+  recCache=all;
   const today=ymd(new Date());
   const td=all.filter(r=>r.ts.slice(0,10)===today);
   document.getElementById("todaySeason").textContent=td.filter(r=>r.type==="season").length;
