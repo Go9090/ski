@@ -421,6 +421,7 @@ camInput.addEventListener("change", async e=>{
     thumb: null,
     hasPhoto: true,
     locked: false,
+    pending: true,   // 写真処理が終わるまで同期対象から外す
     synced: false
   };
   // まず記録を保存して画面に即反映（写真は裏で処理）
@@ -433,9 +434,10 @@ camInput.addEventListener("change", async e=>{
       const buf=await file.arrayBuffer();
       rec.exif = readExifDateTime(buf);
       rec.thumb = await makeThumb(file);
-      await putRec(rec);
-      await refreshHome();
     }catch(err){ /* 写真処理失敗でも記録は残す */ }
+    rec.pending=false;         // 準備完了 → 同期対象に
+    await putRec(rec);
+    await refreshHome();
     flushSync();
   })();
 });
@@ -761,11 +763,15 @@ async function flushSync(){
   flushing=true;
   try{
     const all=await allRecs();
-    const pending=all.filter(r=>!r.synced);
+    const pending=all.filter(r=>!r.synced && !r.pending); // 写真処理中(pending)は送らない
     for(const r of pending){
       if(!r.worker && settings.worker){ r.worker=settings.worker; } // 空なら端末の担当者名で補う
       const ok=await syncRecord(r);
-      if(ok){ r.synced=true; await putRec(r); }
+      if(ok){
+        const cur=await getRec(r.id)||r;   // 最新の記録を取り直して（写真等を消さないよう）synced印だけ付ける
+        cur.synced=true; if(!cur.worker && r.worker) cur.worker=r.worker;
+        await putRec(cur);
+      }
       else { await putRec(r); break; } // 補った担当者名は保存。送れなければ中断→次回再送
     }
   } finally { flushing=false; }
