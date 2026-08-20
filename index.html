@@ -10,6 +10,7 @@
   :root{
     --season:#659287; --season-d:#557a6e;
     --normal:#88BDA4; --normal-d:#6fa88d;
+    --other:#B1D3B9; --other-d:#9cc2a8;
     --bg:#E6F2DD; --card:#ffffff; --card2:#F2F8EC;
     --text:#163a30; --muted:#5a7d70; --line:#B1D3B9;
     --header:#659287; --accent:#f59e0b; --danger:#dc2626;
@@ -46,6 +47,9 @@
   .b-season{background:linear-gradient(135deg,var(--season),var(--season-d));}
   .b-normal{background:linear-gradient(135deg,var(--normal),var(--normal-d)); color:#14342b;}
   .b-normal .cnt{background:rgba(255,255,255,.5); color:#14342b;}
+  .b-other{background:linear-gradient(135deg,var(--other),var(--other-d)); color:#14342b;}
+  .b-other .cnt{background:rgba(255,255,255,.55); color:#14342b;}
+  .bigbtn .bprice{font-size:15px; font-weight:800; opacity:.95; margin-left:2px;}
 
   .stat{display:flex; gap:12px; margin:4px 0 16px;}
   .stat .box{flex:1; background:var(--card); border:none; border-radius:20px; padding:16px 8px; text-align:center; box-shadow:0 10px 26px rgba(80,120,105,.12);}
@@ -64,7 +68,7 @@
   .recent .meta .t{font-size:14px; font-weight:600;}
   .recent .meta .s{font-size:11px; color:var(--muted);}
   .tag{font-size:11px; font-weight:700; padding:3px 8px; border-radius:999px; color:#fff; flex:none;}
-  .tag.season{background:var(--season); color:#fff;} .tag.normal{background:var(--normal); color:#14342b;}
+  .tag.season{background:var(--season); color:#fff;} .tag.normal{background:var(--normal); color:#14342b;} .tag.other{background:var(--other); color:#14342b;}
   .del{background:none; border:none; color:var(--danger); font-size:18px; padding:4px 6px; cursor:pointer;}
 
   /* list view */
@@ -149,19 +153,25 @@
     </div>
     <button class="bigbtn b-season" onclick="capture('season')">
       <span class="cnt" id="homeSeasonCnt">今期 0</span>
-      シーズンレンタル
+      シーズンレンタル <span class="bprice" id="priceSeasonLbl"></span>
       <small>タップ → 写真を撮る → 即記録</small>
     </button>
     <button class="bigbtn b-normal" onclick="capture('normal')">
       <span class="cnt" id="homeNormalCnt">今期 0</span>
-      通常レンタル
+      通常レンタル <span class="bprice" id="priceNormalLbl"></span>
       <small>タップ → 写真を撮る → 即記録</small>
+    </button>
+    <button class="bigbtn b-other" onclick="capture('other')">
+      <span class="cnt" id="homeOtherCnt">今期 0</span>
+      その他チューンナップ <span class="bprice" id="priceOtherLbl"></span>
+      <small>特別価格の作業に使用</small>
     </button>
 
     <div class="stat">
-      <div class="box"><div class="n" id="todayTotal">0</div><div class="l">今日の合計</div></div>
-      <div class="box"><div class="n" id="todaySeason">0</div><div class="l">今日 シーズンレンタル</div></div>
-      <div class="box"><div class="n" id="todayNormal">0</div><div class="l">今日 通常レンタル</div></div>
+      <div class="box"><div class="n" id="todayTotal">0</div><div class="l">今日 計</div></div>
+      <div class="box"><div class="n" id="todaySeason">0</div><div class="l">シーズン</div></div>
+      <div class="box"><div class="n" id="todayNormal">0</div><div class="l">通常</div></div>
+      <div class="box"><div class="n" id="todayOther">0</div><div class="l">その他</div></div>
     </div>
     <div id="syncStatus" style="display:none; font-size:12px; text-align:center; margin:-6px 0 14px;"></div>
 
@@ -193,14 +203,18 @@
       <div class="row2">
         <div>
           <label class="f">開始日</label>
-          <input class="f" type="date" id="periodFrom">
+          <input class="f" type="date" id="periodFrom" readonly>
         </div>
         <div>
           <label class="f">終了日（締め日）</label>
-          <input class="f" type="date" id="periodTo">
+          <input class="f" type="date" id="periodTo" readonly>
         </div>
       </div>
-      <button class="btn ghost" onclick="setDefaultPeriod()">前月21日〜当月20日にする</button>
+      <div class="row2">
+        <button class="btn ghost" onclick="setMonthPeriod(0)">今月（1日〜月末）</button>
+        <button class="btn ghost" onclick="setMonthPeriod(-1)">先月（1日〜月末）</button>
+      </div>
+      <label style="display:block; font-size:13px; margin-top:12px; color:var(--muted);"><input type="checkbox" id="periodEdit" onchange="togglePeriodEdit()"> 締め期間を手動で調整する（通常は不要）</label>
       <div id="periodSummary" class="hint"></div>
     </div>
 
@@ -223,10 +237,12 @@
 
   <!-- SETTINGS -->
   <section id="settings" class="view">
-    <div class="card" style="border-color:var(--accent);">
+    <div class="card" style="border:2px solid var(--accent);">
       <h2>担当者（この端末を使う人）</h2>
-      <label class="f">担当者名</label><input class="f" id="s_worker" placeholder="例：田中">
-      <div class="hint">複数人で使う場合、各自のiPhoneでここに自分の名前を入れてください。記録・報告書・請求書に反映され、誰の分かを分けられます。</div>
+      <label class="f">担当者名</label><input class="f" id="s_worker" placeholder="例：田中" oninput="updateWorkerSaved()" onchange="saveWorker(true)">
+      <div id="workerSaved" style="font-size:13px; margin-top:8px;"></div>
+      <button class="btn primary" onclick="saveWorker(false)">担当者名を保存</button>
+      <div class="hint">各自のiPhoneでここに自分の名前を入れて「担当者名を保存」を押してください。これ以降に登録する記録に、この名前が自動で付きます。</div>
     </div>
     <div class="card">
       <h2>自分（請求元）</h2>
@@ -246,9 +262,10 @@
     <div class="card">
       <h2>金額・締め設定</h2>
       <div class="row2">
-        <div><label class="f">単価（円/本）</label><input class="f" type="number" id="s_price" value="3000"></div>
-        <div><label class="f">締め日</label><input class="f" type="number" id="s_cutoff" value="20"></div>
+        <div><label class="f">シーズンレンタル 単価（円/本）</label><input class="f" type="number" id="s_priceSeason" value="3000"></div>
+        <div><label class="f">通常レンタル 単価（円/本）</label><input class="f" type="number" id="s_priceNormal" value="3000"></div>
       </div>
+      <label class="f">その他チューンナップ 単価（円/本）</label><input class="f" type="number" id="s_priceOther" value="3000">
       <div class="row2">
         <div><label class="f">消費税率(%)</label><input class="f" type="number" id="s_tax" value="10"></div>
         <div><label class="f">源泉徴収</label>
@@ -283,7 +300,7 @@
       <div class="hint">
         1. Safariでこのファイルを開き、共有ボタン →「ホーム画面に追加」でアプリ化。<br>
         2. 板を1本チューンし終えたら、緑（シーズンレンタル）か青（通常レンタル）をタップ→カメラで撮影→自動で1本記録。<br>
-        3. 毎月20日に「月締め」タブで期間を確定し、報告書と請求書をPDF保存。<br>
+        3. 毎月末に「月締め」タブで期間（1日〜月末）を確認し、報告書と請求書をPDF保存。<br>
         4. その都度CSV/バックアップを書き出して保管。
       </div>
     </div>
@@ -320,7 +337,7 @@ const DEF_SETTINGS = {
   worker:"",
   myName:"加藤 学", myAddr:"〒047-0261 北海道小樽市銭函1-34-29", myTel:"080-4045-7890", myEmail:"", invNo:"", bank:"北洋銀行 銭函支店 普通 1234567 カトウ マナブ",
   clName:"", clAddr:"", clPerson:"",
-  price:3000, cutoff:20, tax:10, whtMode:"none", wht:0, invPrefix:"SKI-", invSeq:1
+  priceSeason:3000, priceNormal:3000, priceOther:3000, cutoff:20, tax:10, whtMode:"none", wht:0, invPrefix:"SKI-", invSeq:1
 };
 let settings = loadSettings();
 function loadSettings(){
@@ -367,6 +384,10 @@ function allRecs(){
   return new Promise((res,rej)=>{ const out=[]; const r=tx("readonly").openCursor(); r.onsuccess=e=>{ const c=e.target.result; if(c){out.push(c.value); c.continue();} else res(out.sort((a,b)=>a.ts.localeCompare(b.ts))); }; r.onerror=rej; });
 }
 
+/* ============ 種別ヘルパー ============ */
+function typeLabel(t){ return t==="season"?"シーズンレンタル": t==="other"?"その他チューンナップ":"通常レンタル"; }
+function priceFor(t){ return Number(t==="season"?settings.priceSeason: t==="other"?settings.priceOther : settings.priceNormal)||3000; }
+
 /* ============ 撮影・登録 ============ */
 let pendingType=null;
 const camInput=document.getElementById("camInput");
@@ -379,9 +400,9 @@ async function demoAdd(type){
   const c=document.createElement("canvas"); c.width=c.height=80;
   const g=c.getContext("2d"); g.fillStyle=type==="season"?"#1f9d55":"#2563eb"; g.fillRect(0,0,80,80);
   g.fillStyle="#fff"; g.font="bold 13px sans-serif"; g.fillText("DEMO",16,45);
-  const rec={ id: now.getTime()+"-"+Math.random().toString(36).slice(2,7), ts:now.toISOString(), type, worker:settings.worker||"", price:Number(settings.price)||3000, exif:"2026:08:01 10:00:00", thumb:c.toDataURL("image/jpeg",0.6), hasPhoto:true, locked:false, synced:false };
+  const rec={ id: now.getTime()+"-"+Math.random().toString(36).slice(2,7), ts:now.toISOString(), type, worker:settings.worker||"", price:priceFor(type), exif:"2026:08:01 10:00:00", thumb:c.toDataURL("image/jpeg",0.6), hasPhoto:true, locked:false, synced:false };
   await putRec(rec);
-  toast((type==="season"?"シーズンレンタル":"通常レンタル")+" 1本 登録（デモ）");
+  toast(typeLabel(type)+" 1本 登録（デモ）");
   await refreshAll();
 }
 camInput.addEventListener("change", async e=>{
@@ -392,7 +413,7 @@ camInput.addEventListener("change", async e=>{
     ts: now.toISOString(),
     type: pendingType,
     worker: settings.worker||"",
-    price: Number(settings.price)||3000,
+    price: priceFor(pendingType),
     exif: null,
     thumb: null,
     hasPhoto: true,
@@ -405,7 +426,7 @@ camInput.addEventListener("change", async e=>{
     rec.thumb = await makeThumb(file);
   }catch(err){ /* 写真処理失敗でも記録は残す */ }
   await putRec(rec);
-  toast((type==="season"?"シーズンレンタル":"通常レンタル")+" 1本 登録しました");
+  toast(typeLabel(type)+" 1本 登録しました");
   await refreshAll();
   flushSync();
 });
@@ -486,19 +507,25 @@ function makeThumb(file){
 function pad(n){ return String(n).padStart(2,"0"); }
 function ymd(d){ return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
 function currentPeriod(){
-  const cutoff=Number(settings.cutoff)||20;
   const now=new Date();
-  let end;
-  if(now.getDate()<=cutoff) end=new Date(now.getFullYear(),now.getMonth(),cutoff);
-  else end=new Date(now.getFullYear(),now.getMonth()+1,cutoff);
-  const start=new Date(end.getFullYear(),end.getMonth()-1,cutoff+1);
+  const start=new Date(now.getFullYear(),now.getMonth(),1);
+  const end=new Date(now.getFullYear(),now.getMonth()+1,0); // 当月末
   return {start,end};
 }
-function setDefaultPeriod(){
-  const p=currentPeriod();
-  document.getElementById("periodFrom").value=ymd(p.start);
-  document.getElementById("periodTo").value=ymd(p.end);
+function setMonthPeriod(offset){
+  const now=new Date();
+  const y=now.getFullYear(), m=now.getMonth()+offset;
+  const start=new Date(y,m,1), end=new Date(y,m+1,0);
+  document.getElementById("periodFrom").value=ymd(start);
+  document.getElementById("periodTo").value=ymd(end);
   updatePeriodSummary();
+}
+function setDefaultPeriod(){ setMonthPeriod(0); }
+function togglePeriodEdit(){
+  const on=document.getElementById("periodEdit").checked;
+  document.getElementById("periodFrom").readOnly=!on;
+  document.getElementById("periodTo").readOnly=!on;
+  if(on) toast("締め期間を編集できます。日付のズレに注意してください。");
 }
 function getPeriodInputs(){
   const f=document.getElementById("periodFrom").value;
@@ -515,19 +542,26 @@ async function updatePeriodSummary(){
   const recs=await recsInPeriod(from,to);
   const s=recs.filter(r=>r.type==="season").length;
   const n=recs.filter(r=>r.type==="normal").length;
+  const o=recs.filter(r=>r.type==="other").length;
   const locked=recs.filter(r=>r.locked).length;
   document.getElementById("periodSummary").innerHTML=
-    `この期間：シーズンレンタル <b>${s}</b> 本 ／ 通常レンタル <b>${n}</b> 本 ／ 合計 <b>${s+n}</b> 本（確定済み ${locked} 本）`;
+    `この期間：シーズン <b>${s}</b> ／ 通常 <b>${n}</b> ／ その他 <b>${o}</b> ／ 合計 <b>${s+n+o}</b> 本（確定済み ${locked} 本）`;
+}
+async function doLock(from,to){
+  const recs=await recsInPeriod(from,to);
+  let n=0;
+  for(const r of recs){ if(!r.locked){ r.locked=true; await putRec(r); n++; } }
+  await refreshAll();
+  return n;
 }
 async function lockPeriod(){
   const {from,to}=getPeriodInputs();
   if(!from||!to){ toast("期間を指定してください"); return; }
   const recs=await recsInPeriod(from,to);
   if(!recs.length){ toast("対象の記録がありません"); return; }
-  if(!confirm(`${from} 〜 ${to} の ${recs.length} 本を確定（ロック）します。よろしいですか？`)) return;
-  for(const r of recs){ r.locked=true; await putRec(r); }
+  if(!confirm(`${from} 〜 ${to} の ${recs.length} 本を確定（請求済みに）します。よろしいですか？`)) return;
+  await doLock(from,to);
   toast("期間を確定しました🔒");
-  updatePeriodSummary();
 }
 
 /* ============ 帳票 ============ */
@@ -540,27 +574,39 @@ async function buildDoc(kind){
   const recs=await recsInPeriod(from,to);
   if(!recs.length){ toast("対象の記録がありません"); return; }
 
-  const price=Number(settings.price)||3000;
+  const ps=Number(settings.priceSeason)||3000;
+  const pn=Number(settings.priceNormal)||3000;
+  const po=Number(settings.priceOther)||3000;
   const season=recs.filter(r=>r.type==="season").length;
   const normal=recs.filter(r=>r.type==="normal").length;
-  const total=season+normal;
+  const other=recs.filter(r=>r.type==="other").length;
+  const total=season+normal+other;
   const photos=recs.filter(r=>r.hasPhoto).length;
 
   // 日別集計
   const byDay={};
-  recs.forEach(r=>{ const d=r.ts.slice(0,10); (byDay[d]=byDay[d]||{s:0,n:0,p:0}); byDay[d][r.type==="season"?"s":"n"]++; if(r.hasPhoto)byDay[d].p++; });
+  recs.forEach(r=>{ const d=r.ts.slice(0,10); (byDay[d]=byDay[d]||{s:0,n:0,o:0,p:0}); const k=r.type==="season"?"s":r.type==="other"?"o":"n"; byDay[d][k]++; if(r.hasPhoto)byDay[d].p++; });
   const days=Object.keys(byDay).sort();
 
   let dayRows=days.map(d=>{
-    const o=byDay[d];
-    return `<tr><td style="text-align:left">${jdate(d)}</td><td>${o.s||""}</td><td>${o.n||""}</td><td>${o.s+o.n}</td><td>${o.p}</td></tr>`;
+    const c=byDay[d];
+    return `<tr><td style="text-align:left">${jdate(d)}</td><td>${c.s||""}</td><td>${c.n||""}</td><td>${c.o||""}</td><td>${c.s+c.n+c.o}</td><td>${c.p}</td></tr>`;
   }).join("");
 
-  const sub=total*price;
+  const sub=season*ps+normal*pn+other*po;
   const tax=Math.floor(sub*(Number(settings.tax)||0)/100);
   const wht=calcWht(sub);
   const grand=sub+tax-wht;
   const whtLabel=settings.whtMode==="standard"?"源泉徴収":`源泉徴収(${settings.wht}%)`;
+
+  // 作成前の確認（期間・本数・金額・二重請求チェック）
+  const lockedInPeriod=recs.filter(r=>r.locked).length;
+  const label=kind==="invoice"?"請求書":"報告書";
+  const amountLine=kind==="invoice"?`\nご請求額：${money(grand)}（税込）`:"";
+  const dupWarn=lockedInPeriod>0
+    ? `\n\n⚠ この期間には既に「確定（請求済み）」の記録が ${lockedInPeriod} 本含まれています。\n二重請求になっていないか、期間を必ず確認してください。`
+    : "";
+  if(!confirm(`【${label}を作成します】\n対象期間：${jdate(from)} 〜 ${jdate(to)}\nシーズンレンタル ${season}本 ／ 通常レンタル ${normal}本 ／ その他 ${other}本 ／ 合計 ${total}本${amountLine}${dupWarn}\n\nこの内容でよろしいですか？`)) return;
 
   let html="";
   if(kind==="report"){
@@ -575,14 +621,15 @@ async function buildDoc(kind){
       <span style="color:#555;font-size:12px">${settings.myAddr||""}<br>${settings.myTel||""}　${settings.myEmail||""}</span></div>
     </div>
     <table>
-      <thead><tr><th style="text-align:left">作業日</th><th>シーズンレンタル</th><th>通常レンタル</th><th>本数計</th><th>写真</th></tr></thead>
+      <thead><tr><th style="text-align:left">作業日</th><th>シーズンレンタル</th><th>通常レンタル</th><th>その他</th><th>本数計</th><th>写真</th></tr></thead>
       <tbody>${dayRows}</tbody>
-      <tfoot><tr><td style="text-align:left">合計</td><td>${season}</td><td>${normal}</td><td>${total}</td><td>${photos}</td></tr></tfoot>
+      <tfoot><tr><td style="text-align:left">合計</td><td>${season}</td><td>${normal}</td><td>${other}</td><td>${total}</td><td>${photos}</td></tr></tfoot>
     </table>
     <div style="margin-top:16px;padding:12px;background:#f1f5f9;border-radius:8px">
       <b>種別集計</b><br>
-      シーズンレンタル：${season} 本 × ${money(price)} ＝ ${money(season*price)}<br>
-      通常レンタル：${normal} 本 × ${money(price)} ＝ ${money(normal*price)}<br>
+      シーズンレンタル：${season} 本 × ${money(ps)} ＝ ${money(season*ps)}<br>
+      通常レンタル：${normal} 本 × ${money(pn)} ＝ ${money(normal*pn)}<br>
+      その他チューンナップ：${other} 本 × ${money(po)} ＝ ${money(other*po)}<br>
       <b>合計 ${total} 本　${money(sub)}</b>
     </div>
     <div style="margin-top:10px;color:#555;font-size:12px">
@@ -613,8 +660,9 @@ async function buildDoc(kind){
     <table>
       <thead><tr><th style="text-align:left">品目</th><th>数量</th><th>単価</th><th>金額</th></tr></thead>
       <tbody>
-        <tr><td style="text-align:left">スキー板チューンナップ（シーズンレンタル）</td><td>${season}</td><td>${money(price)}</td><td>${money(season*price)}</td></tr>
-        <tr><td style="text-align:left">スキー板チューンナップ（通常レンタル）</td><td>${normal}</td><td>${money(price)}</td><td>${money(normal*price)}</td></tr>
+        <tr><td style="text-align:left">スキー板チューンナップ（シーズンレンタル）</td><td>${season}</td><td>${money(ps)}</td><td>${money(season*ps)}</td></tr>
+        <tr><td style="text-align:left">スキー板チューンナップ（通常レンタル）</td><td>${normal}</td><td>${money(pn)}</td><td>${money(normal*pn)}</td></tr>
+        ${other>0?`<tr><td style="text-align:left">スキー板チューンナップ（その他）</td><td>${other}</td><td>${money(po)}</td><td>${money(other*po)}</td></tr>`:""}
       </tbody>
       <tfoot>
         <tr><td colspan="3" style="text-align:right">小計</td><td>${money(sub)}</td></tr>
@@ -629,14 +677,26 @@ async function buildDoc(kind){
     <div style="margin-top:10px;color:#555;font-size:12px">合計本数 ${total} 本（うち撮影記録 ${photos} 本）</div>`;
   }
 
+  lastDoc={kind:kind, from:from, to:to};
   document.getElementById("docView").innerHTML=html;
   document.getElementById("docWrap").style.display="block";
   document.getElementById("docWrap").scrollIntoView({behavior:"smooth"});
 }
+let lastDoc=null;
 function closeDoc(){ document.getElementById("docWrap").style.display="none"; }
 function printDoc(){
   document.getElementById("printArea").innerHTML=document.getElementById("docView").innerHTML;
   window.print();
+  // 請求書を保存/印刷した直後に「請求済みにするか」を確認（締め忘れ防止）
+  if(lastDoc && lastDoc.kind==="invoice"){
+    const ld=lastDoc;
+    setTimeout(async()=>{
+      if(confirm(`請求書を保存/印刷しました。\nこの期間（${ld.from} 〜 ${ld.to}）を『請求済み（確定）』にしますか？\n\n確定すると、次の月に同じ日を含めた場合に二重請求の警告が出ます。\nまだ送っていない場合は「キャンセル」でOK。`)){
+        const n=await doLock(ld.from,ld.to);
+        alert(`この期間の記録を『請求済み』として確定しました（新たに ${n} 本）。`);
+      }
+    }, 700);
+  }
 }
 
 /* ============ CSV / JSON ============ */
@@ -646,7 +706,7 @@ function exportCSV(){
   let csv="﻿記録ID,担当者,登録日,登録時刻,種別,単価,写真,EXIF撮影日時,確定\n";
   all.forEach(r=>{
     const d=new Date(r.ts);
-    const type=r.type==="season"?"シーズンレンタル":"通常レンタル";
+    const type=typeLabel(r.type);
     csv+=`${r.id},${r.worker||""},${ymd(d)},${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())},${type},${r.price},${r.hasPhoto?"有":"無"},${r.exif||""},${r.locked?"確定":""}\n`;
   });
   saveFile(csv,"ski-tune_"+ymd(new Date())+".csv","text/csv");
@@ -701,7 +761,7 @@ async function syncRecord(rec){
       method:"POST", mode:"no-cors",
       headers:{"Content-Type":"text/plain;charset=utf-8"},
       body: JSON.stringify({
-        secret:SYNC_SECRET, id:rec.id, ts:rec.ts, type:rec.type, worker:rec.worker||"",
+        secret:SYNC_SECRET, id:rec.id, ts:rec.ts, type:rec.type, worker:rec.worker||settings.worker||"",
         price:rec.price, exif:rec.exif||"", locked:!!rec.locked, thumb: rec.thumb||""
       })
     });
@@ -716,9 +776,10 @@ async function flushSync(){
     const all=await allRecs();
     const pending=all.filter(r=>!r.synced);
     for(const r of pending){
+      if(!r.worker && settings.worker){ r.worker=settings.worker; } // 空なら端末の担当者名で補う
       const ok=await syncRecord(r);
       if(ok){ r.synced=true; await putRec(r); }
-      else break; // 送れなければ中断→次回オンライン時に再送
+      else { await putRec(r); break; } // 補った担当者名は保存。送れなければ中断→次回再送
     }
   } finally { flushing=false; }
   updateSyncIndicator();
@@ -761,16 +822,16 @@ async function renderList(){
   const pre=`${y}-${pad(m+1)}`;
   const recs=all.filter(r=>r.ts.slice(0,7)===pre);
   const byDay={};
-  recs.forEach(r=>{ const d=r.ts.slice(0,10); (byDay[d]=byDay[d]||{s:0,n:0}); byDay[d][r.type==="season"?"s":"n"]++; });
+  recs.forEach(r=>{ const d=r.ts.slice(0,10); (byDay[d]=byDay[d]||{s:0,n:0,o:0}); const k=r.type==="season"?"s":r.type==="other"?"o":"n"; byDay[d][k]++; });
   const days=Object.keys(byDay).sort();
   const wrap=document.getElementById("listTableWrap");
   if(!days.length){ wrap.innerHTML=`<div class="empty">この月の記録はありません</div>`; return; }
-  let ts=0,tn=0;
-  let rows=days.map(d=>{ const o=byDay[d]; ts+=o.s; tn+=o.n; const dd=Number(d.slice(8)); return `<tr><td class="day">${m+1}/${dd}</td><td>${o.s||"—"}</td><td>${o.n||"—"}</td><td>${o.s+o.n}</td></tr>`; }).join("");
+  let ts=0,tn=0,to=0;
+  let rows=days.map(d=>{ const o=byDay[d]; ts+=o.s; tn+=o.n; to+=o.o; const dd=Number(d.slice(8)); return `<tr><td class="day">${m+1}/${dd}</td><td>${o.s||"—"}</td><td>${o.n||"—"}</td><td>${o.o||"—"}</td><td>${o.s+o.n+o.o}</td></tr>`; }).join("");
   wrap.innerHTML=`<table>
-    <thead><tr><th style="text-align:left">日</th><th>シーズン<br>レンタル</th><th>通常<br>レンタル</th><th>計</th></tr></thead>
+    <thead><tr><th style="text-align:left">日</th><th>シーズン<br>レンタル</th><th>通常<br>レンタル</th><th>その他</th><th>計</th></tr></thead>
     <tbody>${rows}</tbody>
-    <tfoot><tr><td class="day">合計</td><td>${ts}</td><td>${tn}</td><td>${ts+tn}</td></tr></tfoot>
+    <tfoot><tr><td class="day">合計</td><td>${ts}</td><td>${tn}</td><td>${to}</td><td>${ts+tn+to}</td></tr></tfoot>
   </table>`;
 }
 
@@ -782,15 +843,22 @@ async function refreshHome(){
   const td=all.filter(r=>r.ts.slice(0,10)===today);
   document.getElementById("todaySeason").textContent=td.filter(r=>r.type==="season").length;
   document.getElementById("todayNormal").textContent=td.filter(r=>r.type==="normal").length;
+  document.getElementById("todayOther").textContent=td.filter(r=>r.type==="other").length;
   document.getElementById("todayTotal").textContent=td.length;
+
+  // ボタンに単価を表示
+  document.getElementById("priceSeasonLbl").textContent=money(Number(settings.priceSeason)||0);
+  document.getElementById("priceNormalLbl").textContent=money(Number(settings.priceNormal)||0);
+  document.getElementById("priceOtherLbl").textContent=money(Number(settings.priceOther)||0);
 
   const p=currentPeriod();
   const pf=ymd(p.start), pt=ymd(p.end);
   const inP=all.filter(r=>{ const d=r.ts.slice(0,10); return d>=pf&&d<=pt; });
   document.getElementById("homeSeasonCnt").textContent="今期 "+inP.filter(r=>r.type==="season").length;
   document.getElementById("homeNormalCnt").textContent="今期 "+inP.filter(r=>r.type==="normal").length;
+  document.getElementById("homeOtherCnt").textContent="今期 "+inP.filter(r=>r.type==="other").length;
   const wname=settings.worker?("担当: "+settings.worker+"　"):"";
-  document.getElementById("periodSub").textContent=`${wname}締め期間 ${pf.replace(/-/g,"/")} 〜 ${pt.replace(/-/g,"/")}（20日締め）`;
+  document.getElementById("periodSub").textContent=`${wname}締め期間 ${pf.replace(/-/g,"/")} 〜 ${pt.replace(/-/g,"/")}（月末締め）`;
   const wb=document.getElementById("workerBanner");
   if(wb){ if(!settings.worker){ wb.style.display="block"; } else { wb.style.display="none"; } }
 
@@ -803,7 +871,7 @@ async function refreshHome(){
     const tm=`${d.getMonth()+1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
     const img=r.thumb?`<img src="${r.thumb}">`:`<img alt="">`;
     return `<li>${img}
-      <span class="tag ${r.type}">${r.type==="season"?"シーズンレンタル":"通常レンタル"}</span>
+      <span class="tag ${r.type}">${typeLabel(r.type)}</span>
       <div class="meta"><div class="t">${tm}</div><div class="s">${money(r.price)}${r.locked?" ・確定":""}</div></div>
       <button class="del" onclick="removeRec('${r.id}')">🗑</button></li>`;
   }).join("");
@@ -816,12 +884,28 @@ async function removeRec(id){
 }
 
 /* ============ 設定UI ============ */
-const SMAP=[["s_worker","worker"],["s_myName","myName"],["s_myAddr","myAddr"],["s_myTel","myTel"],["s_myEmail","myEmail"],["s_invNo","invNo"],["s_bank","bank"],["s_clName","clName"],["s_clAddr","clAddr"],["s_clPerson","clPerson"],["s_price","price"],["s_cutoff","cutoff"],["s_tax","tax"],["s_whtMode","whtMode"],["s_wht","wht"],["s_invPrefix","invPrefix"]];
-function fillSettings(){ SMAP.forEach(([id,k])=>{ const el=document.getElementById(id); if(el) el.value=settings[k]; }); toggleWht(); }
+const SMAP=[["s_worker","worker"],["s_myName","myName"],["s_myAddr","myAddr"],["s_myTel","myTel"],["s_myEmail","myEmail"],["s_invNo","invNo"],["s_bank","bank"],["s_clName","clName"],["s_clAddr","clAddr"],["s_clPerson","clPerson"],["s_priceSeason","priceSeason"],["s_priceNormal","priceNormal"],["s_priceOther","priceOther"],["s_tax","tax"],["s_whtMode","whtMode"],["s_wht","wht"],["s_invPrefix","invPrefix"]];
+function fillSettings(){ SMAP.forEach(([id,k])=>{ const el=document.getElementById(id); if(el) el.value=settings[k]; }); toggleWht(); updateWorkerSaved(); }
+function updateWorkerSaved(){
+  const el=document.getElementById("workerSaved"); if(!el) return;
+  const field=(document.getElementById("s_worker").value||"").trim();
+  if(field!==(settings.worker||"")){ el.innerHTML='⚠ <b style="color:#dc2626">未保存の変更があります。「担当者名を保存」を押してください。</b>'; return; }
+  el.innerHTML = settings.worker
+    ? '<span style="color:#16a34a">✅ 現在の担当者：<b>'+settings.worker+'</b>（保存済み）</span>'
+    : '<span style="color:#dc2626">担当者名がまだ設定されていません。</span>';
+}
 function toggleWht(){ const m=document.getElementById("s_whtMode").value; document.getElementById("whtPctRow").style.display=(m==="percent")?"block":"none"; }
 function saveSettings(){
-  SMAP.forEach(([id,k])=>{ const el=document.getElementById(id); if(el) settings[k]= (["price","cutoff","tax","wht"].includes(k)? Number(el.value) : el.value); });
-  persistSettings(); toast("設定を保存しました"); refreshHome();
+  SMAP.forEach(([id,k])=>{ const el=document.getElementById(id); if(el) settings[k]= (["priceSeason","priceNormal","priceOther","cutoff","tax","wht"].includes(k)? Number(el.value) : el.value); });
+  persistSettings(); refreshHome(); updateWorkerSaved(); alert("設定を保存しました。");
+}
+function saveWorker(silent){
+  const el=document.getElementById("s_worker");
+  settings.worker=(el.value||"").trim(); el.value=settings.worker;
+  persistSettings(); refreshHome(); updateWorkerSaved();
+  if(silent){ toast(settings.worker?("担当者名を保存：「"+settings.worker+"」"):"担当者名を空にしました"); return; }
+  if(settings.worker){ alert("担当者名「"+settings.worker+"」で保存しました。\nこれ以降に登録する記録に、この名前が付きます。"); }
+  else{ alert("担当者名が空です。名前を入力してから「担当者名を保存」を押してください。"); }
 }
 /* 源泉徴収の計算（税抜金額ベース） */
 function calcWht(base){
