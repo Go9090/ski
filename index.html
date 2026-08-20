@@ -281,7 +281,6 @@
       </div>
       <div id="whtPctRow" style="display:none"><label class="f">源泉税率(%)</label><input class="f" type="number" step="0.01" id="s_wht" value="10.21"></div>
       <div class="hint">源泉徴収は税抜（本体）金額に対して計算します。標準式は所得税＋復興特別所得税。※そもそも源泉が必要か・計算基礎は契約により異なります。先方や税理士にご確認ください。</div>
-      <label class="f">請求書番号の接頭辞</label><input class="f" id="s_invPrefix" placeholder="SKI-">
       <div class="hint">※ 未保存の変更があると「設定を保存」ボタンがオレンジに点滅します。押すと保存されます。保存前に別のタブへ移動しようとすると確認が出ます。</div>
       <button class="btn primary saveBtn" onclick="saveSettings(false)">設定を保存</button>
     </div>
@@ -341,7 +340,7 @@ const DEF_SETTINGS = {
   worker:"",
   myName:"加藤 学", myAddr:"〒047-0261 北海道小樽市銭函1-34-29", myTel:"080-4045-7890", myEmail:"", invNo:"", bank:"北洋銀行 銭函支店 普通 1234567 カトウ マナブ",
   clName:"", clAddr:"", clPerson:"",
-  priceSeason:3000, priceNormal:3000, priceOther:3000, cutoff:20, tax:10, whtMode:"none", wht:0, invPrefix:"SKI-", invSeq:1
+  priceSeason:3000, priceNormal:3000, priceOther:3000, cutoff:20, tax:10, whtMode:"none", wht:0, invSeq:1
 };
 let settings = loadSettings();
 function loadSettings(){
@@ -424,15 +423,21 @@ camInput.addEventListener("change", async e=>{
     locked: false,
     synced: false
   };
-  try{
-    const buf=await file.arrayBuffer();
-    rec.exif = readExifDateTime(buf);
-    rec.thumb = await makeThumb(file);
-  }catch(err){ /* 写真処理失敗でも記録は残す */ }
+  // まず記録を保存して画面に即反映（写真は裏で処理）
   await putRec(rec);
   toast(typeLabel(type)+" 1本 登録しました");
   await refreshAll();
-  flushSync();
+  // 写真の縮小・EXIF抽出は背景で。終わったら記録を更新して同期
+  (async()=>{
+    try{
+      const buf=await file.arrayBuffer();
+      rec.exif = readExifDateTime(buf);
+      rec.thumb = await makeThumb(file);
+      await putRec(rec);
+      await refreshHome();
+    }catch(err){ /* 写真処理失敗でも記録は残す */ }
+    flushSync();
+  })();
 });
 
 /* EXIF DateTimeOriginal 抽出（無ければnull） */
@@ -510,6 +515,8 @@ function makeThumb(file){
 /* ============ 期間・締め ============ */
 function pad(n){ return String(n).padStart(2,"0"); }
 function ymd(d){ return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
+function ldate(ts){ return ymd(new Date(ts)); }              // 記録のローカル日付 YYYY-MM-DD
+function lmonth(ts){ const d=new Date(ts); return d.getFullYear()+"-"+pad(d.getMonth()+1); } // ローカル年月
 function currentPeriod(){
   const now=new Date();
   const start=new Date(now.getFullYear(),now.getMonth(),1);
@@ -545,7 +552,7 @@ function getPeriodInputs(){
 }
 async function recsInPeriod(from,to){
   const all=await allRecs();
-  return all.filter(r=>{ const d=r.ts.slice(0,10); return d>=from && d<=to; });
+  return all.filter(r=>{ const d=ldate(r.ts); return d>=from && d<=to; });
 }
 async function updatePeriodSummary(){
   const {from,to}=getPeriodInputs();
@@ -579,7 +586,7 @@ async function buildDoc(kind){
 
   // 日別集計
   const byDay={};
-  recs.forEach(r=>{ const d=r.ts.slice(0,10); (byDay[d]=byDay[d]||{s:0,n:0,o:0,p:0}); const k=r.type==="season"?"s":r.type==="other"?"o":"n"; byDay[d][k]++; if(r.hasPhoto)byDay[d].p++; });
+  recs.forEach(r=>{ const d=ldate(r.ts); (byDay[d]=byDay[d]||{s:0,n:0,o:0,p:0}); const k=r.type==="season"?"s":r.type==="other"?"o":"n"; byDay[d][k]++; if(r.hasPhoto)byDay[d].p++; });
   const days=Object.keys(byDay).sort();
 
   let dayRows=days.map(d=>{
@@ -626,7 +633,9 @@ async function buildDoc(kind){
       証拠写真：全 ${total} 本中 ${photos} 本に撮影データを保管（各作業を撮影・記録しています）。
     </div>`;
   } else {
-    const invNo=(settings.invPrefix||"")+ymd(new Date()).replace(/-/g,"")+"-"+String(settings.invSeq).padStart(3,"0");
+    // 請求書番号：対象月YYMM ＋ 3桁通し番号（例 2608001）。作成のたびに通し番号を1進める。
+    const invNo=to.slice(2,4)+to.slice(5,7)+String(Number(settings.invSeq)||1).padStart(3,"0");
+    settings.invSeq=(Number(settings.invSeq)||1)+1; persistSettings();
     html=`
     <h2 style="text-align:center;margin:0 0 16px">請 求 書</h2>
     <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
@@ -798,9 +807,9 @@ async function renderList(){
   document.getElementById("listMonthLbl").textContent=`${y}年${m+1}月`;
   const all=await allRecs();
   const pre=`${y}-${pad(m+1)}`;
-  const recs=all.filter(r=>r.ts.slice(0,7)===pre);
+  const recs=all.filter(r=>lmonth(r.ts)===pre);
   const byDay={};
-  recs.forEach(r=>{ const d=r.ts.slice(0,10); (byDay[d]=byDay[d]||{s:0,n:0,o:0}); const k=r.type==="season"?"s":r.type==="other"?"o":"n"; byDay[d][k]++; });
+  recs.forEach(r=>{ const d=ldate(r.ts); (byDay[d]=byDay[d]||{s:0,n:0,o:0}); const k=r.type==="season"?"s":r.type==="other"?"o":"n"; byDay[d][k]++; });
   const days=Object.keys(byDay).sort();
   const wrap=document.getElementById("listTableWrap");
   if(!days.length){ wrap.innerHTML=`<div class="empty">この月の記録はありません</div>`; return; }
@@ -818,7 +827,7 @@ async function refreshHome(){
   const all=await allRecs();
   recCache=all;
   const today=ymd(new Date());
-  const td=all.filter(r=>r.ts.slice(0,10)===today);
+  const td=all.filter(r=>ldate(r.ts)===today);
   document.getElementById("todaySeason").textContent=td.filter(r=>r.type==="season").length;
   document.getElementById("todayNormal").textContent=td.filter(r=>r.type==="normal").length;
   document.getElementById("todayOther").textContent=td.filter(r=>r.type==="other").length;
@@ -831,7 +840,7 @@ async function refreshHome(){
 
   const p=currentPeriod();
   const pf=ymd(p.start), pt=ymd(p.end);
-  const inP=all.filter(r=>{ const d=r.ts.slice(0,10); return d>=pf&&d<=pt; });
+  const inP=all.filter(r=>{ const d=ldate(r.ts); return d>=pf&&d<=pt; });
   document.getElementById("homeSeasonCnt").textContent="今期 "+inP.filter(r=>r.type==="season").length;
   document.getElementById("homeNormalCnt").textContent="今期 "+inP.filter(r=>r.type==="normal").length;
   document.getElementById("homeOtherCnt").textContent="今期 "+inP.filter(r=>r.type==="other").length;
@@ -860,7 +869,7 @@ async function removeRec(id){
 }
 
 /* ============ 設定UI ============ */
-const SMAP=[["s_worker","worker"],["s_myName","myName"],["s_myAddr","myAddr"],["s_myTel","myTel"],["s_myEmail","myEmail"],["s_invNo","invNo"],["s_bank","bank"],["s_clName","clName"],["s_clAddr","clAddr"],["s_clPerson","clPerson"],["s_priceSeason","priceSeason"],["s_priceNormal","priceNormal"],["s_priceOther","priceOther"],["s_tax","tax"],["s_whtMode","whtMode"],["s_wht","wht"],["s_invPrefix","invPrefix"]];
+const SMAP=[["s_worker","worker"],["s_myName","myName"],["s_myAddr","myAddr"],["s_myTel","myTel"],["s_myEmail","myEmail"],["s_invNo","invNo"],["s_bank","bank"],["s_clName","clName"],["s_clAddr","clAddr"],["s_clPerson","clPerson"],["s_priceSeason","priceSeason"],["s_priceNormal","priceNormal"],["s_priceOther","priceOther"],["s_tax","tax"],["s_whtMode","whtMode"],["s_wht","wht"]];
 function fillSettings(){ SMAP.forEach(([id,k])=>{ const el=document.getElementById(id); if(el) el.value=settings[k]; }); toggleWht(); updateWorkerSaved(); }
 function updateWorkerSaved(){
   const el=document.getElementById("workerSaved"); if(!el) return;
