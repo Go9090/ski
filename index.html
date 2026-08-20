@@ -64,6 +64,7 @@
   .recent li{display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--line);}
   .recent li:last-child{border-bottom:none;}
   .recent img{width:46px; height:46px; border-radius:14px; object-fit:cover; background:#dce9e2; flex:none;}
+  .recent .pico{width:46px; height:46px; border-radius:14px; background:#e7f1ea; display:flex; align-items:center; justify-content:center; font-size:20px; flex:none;}
   .recent .meta{flex:1; min-width:0;}
   .recent .meta .t{font-size:14px; font-weight:600;}
   .recent .meta .s{font-size:11px; color:var(--muted);}
@@ -307,7 +308,7 @@
         4. その都度CSV/バックアップを書き出して保管。
       </div>
     </div>
-    <div class="hint" style="text-align:center; margin-top:8px;">v2026.08.21f（写真診断版3・上部に版表示）</div>
+    <div class="hint" style="text-align:center; margin-top:8px;">v2026.08.21h（写真はGoogleへ・端末に貯めない）</div>
   </section>
 
 </div>
@@ -333,7 +334,7 @@
    ======================================================== */
 const SYNC_URL = "https://script.google.com/macros/s/AKfycbzmD795pAQWQtSRPF-Gp5GK3hmNC5Sg5g3yH2XQRZOqTCfIEi-ZbB05qVpqcvyfkjrI/exec";
 const SYNC_SECRET = "ski2026himitsu";
-const APP_VERSION = "v2026.08.21f";
+const APP_VERSION = "v2026.08.21h";
 /* ▲▲▲ ここまで ▲▲▲ */
 
 /* ============ 設定 ============ */
@@ -419,29 +420,18 @@ camInput.addEventListener("change", async e=>{
     worker: settings.worker||"",
     price: priceFor(pendingType),
     exif: null,
+    photoBlob: file,   // 撮った写真そのものを保存（表示も送信もこれを使う。canvas縮小に頼らない）
     thumb: null,
     hasPhoto: true,
     locked: false,
-    pending: true,   // 写真処理が終わるまで同期対象から外す
     synced: false
   };
-  // まず記録を保存して画面に即反映（写真は裏で処理）
-  await putRec(rec);
+  await putRec(rec);   // 写真ごと保存。表示は写真を直接表示するので即出る
   toast(typeLabel(type)+" 1本 登録しました");
   await refreshAll();
-  // 写真の縮小・EXIF抽出は背景で。終わったら記録を更新して同期
+  // EXIF（撮影日時）だけ裏で取得。写真のGoogle送信は flushSync が担当。
   (async()=>{
-    let dbg="";
-    try{
-      const buf=await withTimeout(file.arrayBuffer(), 8000, null);
-      rec.exif = buf?readExifDateTime(buf):null;
-      rec.thumb = await withTimeout(makeThumb(file), 12000, null);
-      dbg = rec.thumb ? ("写真OK "+Math.round((rec.thumb.length||0)/1024)+"KB/元"+Math.round(file.size/1024)+"KB "+(file.type||"?")) : ("写真NG 元"+Math.round(file.size/1024)+"KB "+(file.type||"?"));
-    }catch(err){ dbg="写真エラー:"+((err&&err.message)||err); }
-    rec.pending=false;         // 準備完了 → 同期対象に
-    rec.dbg=dbg;               // ← 診断を記録に保存（最近の登録に表示。原因が分かったら消します）
-    await putRec(rec);
-    await refreshHome();
+    try{ const buf=await withTimeout(file.arrayBuffer(), 8000, null); if(buf){ rec.exif=readExifDateTime(buf); await putRec(rec); } }catch(e){}
     flushSync();
   })();
 });
@@ -765,14 +755,17 @@ async function importJSON(e){
 
 /* ============ クラウド自動同期 ============ */
 function syncEnabled(){ return !!SYNC_URL; }
+function blobToDataURL(blob){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=()=>rej(r.error||new Error("read")); r.readAsDataURL(blob); }); }
 async function syncRecord(rec){
   try{
+    let photo = rec.thumb || "";
+    if(!photo && rec.photoBlob){ photo = await withTimeout(blobToDataURL(rec.photoBlob), 15000, ""); }
     await fetch(SYNC_URL, {
       method:"POST", mode:"no-cors",
       headers:{"Content-Type":"text/plain;charset=utf-8"},
       body: JSON.stringify({
         secret:SYNC_SECRET, id:rec.id, ts:rec.ts, type:rec.type, worker:rec.worker||settings.worker||"",
-        price:rec.price, exif:rec.exif||"", locked:!!rec.locked, thumb: rec.thumb||""
+        price:rec.price, exif:rec.exif||"", locked:!!rec.locked, thumb: photo
       })
     });
     return true; // no-corsは応答を読めないため、送信できたら成功とみなす
@@ -789,8 +782,9 @@ async function flushSync(){
       if(!r.worker && settings.worker){ r.worker=settings.worker; } // 空なら端末の担当者名で補う
       const ok=await syncRecord(r);
       if(ok){
-        const cur=await getRec(r.id)||r;   // 最新の記録を取り直して（写真等を消さないよう）synced印だけ付ける
+        const cur=await getRec(r.id)||r;   // 最新の記録を取り直してsynced印を付ける
         cur.synced=true; if(!cur.worker && r.worker) cur.worker=r.worker;
+        if(cur.photoBlob){ delete cur.photoBlob; }  // 写真はGoogleに送ったので端末からは削除（携帯に貯めない）
         await putRec(cur);
       }
       else { await putRec(r); break; } // 補った担当者名は保存。送れなければ中断→次回再送
@@ -880,13 +874,18 @@ async function refreshHome(){
   const recent=all.slice(-8).reverse();
   const ul=document.getElementById("recentList");
   if(!recent.length){ ul.innerHTML=`<li class="empty">まだ登録がありません</li>`; return; }
+  if(window._recentUrls){ window._recentUrls.forEach(u=>{ try{URL.revokeObjectURL(u);}catch(e){} }); }
+  window._recentUrls=[];
   ul.innerHTML=recent.map(r=>{
     const d=new Date(r.ts);
     const tm=`${d.getMonth()+1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-    const img=r.thumb?`<img src="${r.thumb}">`:`<img alt="">`;
+    let img='<img alt="">';
+    if(r.photoBlob){ try{ const u=URL.createObjectURL(r.photoBlob); window._recentUrls.push(u); img=`<img src="${u}">`; }catch(e){} }
+    else if(r.thumb){ img=`<img src="${r.thumb}">`; }
+    else if(r.hasPhoto){ img=`<div class="pico">📷</div>`; }  // 写真はGoogleに保管済み
     return `<li>${img}
       <span class="tag ${r.type}">${typeLabel(r.type)}</span>
-      <div class="meta"><div class="t">${tm}</div><div class="s">${money(r.price)}${r.dbg?" ・"+r.dbg:(r.pending?" ・写真処理中":"")}</div></div>
+      <div class="meta"><div class="t">${tm}</div><div class="s">${money(r.price)}</div></div>
       <button class="del" onclick="removeRec('${r.id}')">🗑</button></li>`;
   }).join("");
 }
