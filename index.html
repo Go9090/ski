@@ -307,7 +307,7 @@
         4. その都度CSV/バックアップを書き出して保管。
       </div>
     </div>
-    <div class="hint" style="text-align:center; margin-top:8px;">v2026.08.21c（写真サムネイル iPhone対応 修正版）</div>
+    <div class="hint" style="text-align:center; margin-top:8px;">v2026.08.21d（写真診断版）</div>
   </section>
 
 </div>
@@ -430,14 +430,17 @@ camInput.addEventListener("change", async e=>{
   await refreshAll();
   // 写真の縮小・EXIF抽出は背景で。終わったら記録を更新して同期
   (async()=>{
+    let dbg="";
     try{
       const buf=await file.arrayBuffer();
       rec.exif = readExifDateTime(buf);
       rec.thumb = await makeThumb(file);
-    }catch(err){ /* 写真処理失敗でも記録は残す */ }
+      dbg = rec.thumb ? ("写真OK "+Math.round((rec.thumb.length||0)/1024)+"KB / 元"+Math.round(file.size/1024)+"KB "+(file.type||"?")) : ("写真NG(空) 元"+Math.round(file.size/1024)+"KB "+(file.type||"?"));
+    }catch(err){ dbg="写真エラー:"+((err&&err.message)||err); }
     rec.pending=false;         // 準備完了 → 同期対象に
     await putRec(rec);
     await refreshHome();
+    alert(dbg);                // ← 診断表示（原因が分かったら消します）
     flushSync();
   })();
 });
