@@ -307,7 +307,7 @@
         4. その都度CSV/バックアップを書き出して保管。
       </div>
     </div>
-    <div class="hint" style="text-align:center; margin-top:8px;">v2026.08.21e（写真診断版2）</div>
+    <div class="hint" style="text-align:center; margin-top:8px;">v2026.08.21f（写真診断版3・上部に版表示）</div>
   </section>
 
 </div>
@@ -333,6 +333,7 @@
    ======================================================== */
 const SYNC_URL = "https://script.google.com/macros/s/AKfycbzmD795pAQWQtSRPF-Gp5GK3hmNC5Sg5g3yH2XQRZOqTCfIEi-ZbB05qVpqcvyfkjrI/exec";
 const SYNC_SECRET = "ski2026himitsu";
+const APP_VERSION = "v2026.08.21f";
 /* ▲▲▲ ここまで ▲▲▲ */
 
 /* ============ 設定 ============ */
@@ -435,12 +436,12 @@ camInput.addEventListener("change", async e=>{
       const buf=await withTimeout(file.arrayBuffer(), 8000, null);
       rec.exif = buf?readExifDateTime(buf):null;
       rec.thumb = await withTimeout(makeThumb(file), 12000, null);
-      dbg = rec.thumb ? ("写真OK "+Math.round((rec.thumb.length||0)/1024)+"KB / 元"+Math.round(file.size/1024)+"KB "+(file.type||"?")) : ("写真NG(空/固まり) 元"+Math.round(file.size/1024)+"KB "+(file.type||"?"));
+      dbg = rec.thumb ? ("写真OK "+Math.round((rec.thumb.length||0)/1024)+"KB/元"+Math.round(file.size/1024)+"KB "+(file.type||"?")) : ("写真NG 元"+Math.round(file.size/1024)+"KB "+(file.type||"?"));
     }catch(err){ dbg="写真エラー:"+((err&&err.message)||err); }
     rec.pending=false;         // 準備完了 → 同期対象に
+    rec.dbg=dbg;               // ← 診断を記録に保存（最近の登録に表示。原因が分かったら消します）
     await putRec(rec);
     await refreshHome();
-    alert(dbg);                // ← 診断表示（原因が分かったら消します）
     flushSync();
   })();
 });
@@ -871,7 +872,7 @@ async function refreshHome(){
   document.getElementById("homeNormalCnt").textContent="今期 "+inP.filter(r=>r.type==="normal").length;
   document.getElementById("homeOtherCnt").textContent="今期 "+inP.filter(r=>r.type==="other").length;
   const wname=settings.worker?("担当: "+settings.worker+"　"):"";
-  document.getElementById("periodSub").textContent=`${wname}締め期間 ${pf.replace(/-/g,"/")} 〜 ${pt.replace(/-/g,"/")}（月末締め）`;
+  document.getElementById("periodSub").textContent=`${APP_VERSION}　${wname}締め期間 ${pf.replace(/-/g,"/")} 〜 ${pt.replace(/-/g,"/")}（月末締め）`;
   const wb=document.getElementById("workerBanner");
   if(wb){ if(!settings.worker){ wb.style.display="block"; } else { wb.style.display="none"; } }
 
@@ -885,7 +886,7 @@ async function refreshHome(){
     const img=r.thumb?`<img src="${r.thumb}">`:`<img alt="">`;
     return `<li>${img}
       <span class="tag ${r.type}">${typeLabel(r.type)}</span>
-      <div class="meta"><div class="t">${tm}</div><div class="s">${money(r.price)}</div></div>
+      <div class="meta"><div class="t">${tm}</div><div class="s">${money(r.price)}${r.dbg?" ・"+r.dbg:(r.pending?" ・写真処理中":"")}</div></div>
       <button class="del" onclick="removeRec('${r.id}')">🗑</button></li>`;
   }).join("");
 }
