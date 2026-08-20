@@ -307,7 +307,7 @@
         4. その都度CSV/バックアップを書き出して保管。
       </div>
     </div>
-    <div class="hint" style="text-align:center; margin-top:8px;">v2026.08.21d（写真診断版）</div>
+    <div class="hint" style="text-align:center; margin-top:8px;">v2026.08.21e（写真診断版2）</div>
   </section>
 
 </div>
@@ -432,10 +432,10 @@ camInput.addEventListener("change", async e=>{
   (async()=>{
     let dbg="";
     try{
-      const buf=await file.arrayBuffer();
-      rec.exif = readExifDateTime(buf);
-      rec.thumb = await makeThumb(file);
-      dbg = rec.thumb ? ("写真OK "+Math.round((rec.thumb.length||0)/1024)+"KB / 元"+Math.round(file.size/1024)+"KB "+(file.type||"?")) : ("写真NG(空) 元"+Math.round(file.size/1024)+"KB "+(file.type||"?"));
+      const buf=await withTimeout(file.arrayBuffer(), 8000, null);
+      rec.exif = buf?readExifDateTime(buf):null;
+      rec.thumb = await withTimeout(makeThumb(file), 12000, null);
+      dbg = rec.thumb ? ("写真OK "+Math.round((rec.thumb.length||0)/1024)+"KB / 元"+Math.round(file.size/1024)+"KB "+(file.type||"?")) : ("写真NG(空/固まり) 元"+Math.round(file.size/1024)+"KB "+(file.type||"?"));
     }catch(err){ dbg="写真エラー:"+((err&&err.message)||err); }
     rec.pending=false;         // 準備完了 → 同期対象に
     await putRec(rec);
@@ -501,6 +501,9 @@ function readAscii(dv,tiff,e,g16,g32){
 }
 
 /* サムネイル生成（iPhoneで確実に動くcreateImageBitmap優先。失敗時はImage方式＋タイムアウト）*/
+function withTimeout(p, ms, fallback){
+  return Promise.race([ Promise.resolve(p).catch(()=>fallback), new Promise(r=>setTimeout(()=>r(fallback), ms)) ]);
+}
 function drawThumb(src,w,h){
   const max=360; const sc=Math.min(1,max/Math.max(w,h));
   const cw=Math.max(1,Math.round(w*sc)), ch=Math.max(1,Math.round(h*sc));
@@ -509,13 +512,15 @@ function drawThumb(src,w,h){
   return c.toDataURL("image/jpeg",0.55);
 }
 async function makeThumb(file){
-  // 1) createImageBitmap（iOSで安定・ハングしにくい）
+  // 1) createImageBitmap（iOSで安定・ハングしにくい）。ハング対策で7秒タイムアウト。
   try{
     if(window.createImageBitmap){
-      const bmp=await createImageBitmap(file);
-      const durl=drawThumb(bmp,bmp.width,bmp.height);
-      if(bmp.close) bmp.close();
-      if(durl && durl.length>100) return durl;
+      const bmp=await withTimeout(createImageBitmap(file), 7000, null);
+      if(bmp){
+        const durl=drawThumb(bmp,bmp.width,bmp.height);
+        if(bmp.close) bmp.close();
+        if(durl && durl.length>100) return durl;
+      }
     }
   }catch(e){}
   // 2) フォールバック：Image方式。8秒で諦める（固まり防止）
