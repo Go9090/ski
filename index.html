@@ -211,8 +211,8 @@
         </div>
       </div>
       <div class="row2">
-        <button class="btn ghost" onclick="setMonthPeriod(0)">今月（1日〜月末）</button>
-        <button class="btn ghost" onclick="setMonthPeriod(-1)">先月（1日〜月末）</button>
+        <button class="btn ghost" id="thisMonthBtn" onclick="setMonthPeriod(0)">今月分</button>
+        <button class="btn ghost" id="lastMonthBtn" onclick="setMonthPeriod(-1)">先月分</button>
       </div>
       <label style="display:block; font-size:13px; margin-top:12px; color:var(--muted);"><input type="checkbox" id="periodEdit" onchange="togglePeriodEdit()"> 締め期間を手動で調整する（通常は不要）</label>
       <div id="periodSummary" class="hint"></div>
@@ -222,8 +222,7 @@
       <h2>帳票を作成</h2>
       <button class="btn green" onclick="buildDoc('report')">📋 報告書を作成</button>
       <button class="btn blue" onclick="buildDoc('invoice')">🧾 請求書を作成</button>
-      <button class="btn primary" onclick="lockPeriod()">🔒 この期間を確定（ロック）</button>
-      <div class="hint">確定すると期間内の記録に「確定済み」印が付き、あとから消しにくくなります（言った言わない防止）。ロック後も帳票は何度でも作れます。</div>
+      <div class="hint">作成前に「対象期間・本数・金額」の確認が出ます。内容を確かめてから作成できます。</div>
     </div>
 
     <div id="docWrap" style="display:none;">
@@ -520,6 +519,13 @@ function setMonthPeriod(offset){
   document.getElementById("periodTo").value=ymd(end);
   updatePeriodSummary();
 }
+function updateMonthButtons(){
+  const now=new Date();
+  const tm=now.getMonth()+1;
+  const lm=new Date(now.getFullYear(),now.getMonth()-1,1).getMonth()+1;
+  const tb=document.getElementById("thisMonthBtn"); if(tb) tb.textContent=tm+"月分（今月）";
+  const lb=document.getElementById("lastMonthBtn"); if(lb) lb.textContent=lm+"月分（先月）";
+}
 function setDefaultPeriod(){ setMonthPeriod(0); }
 function togglePeriodEdit(){
   const on=document.getElementById("periodEdit").checked;
@@ -543,25 +549,8 @@ async function updatePeriodSummary(){
   const s=recs.filter(r=>r.type==="season").length;
   const n=recs.filter(r=>r.type==="normal").length;
   const o=recs.filter(r=>r.type==="other").length;
-  const locked=recs.filter(r=>r.locked).length;
   document.getElementById("periodSummary").innerHTML=
-    `この期間：シーズン <b>${s}</b> ／ 通常 <b>${n}</b> ／ その他 <b>${o}</b> ／ 合計 <b>${s+n+o}</b> 本（確定済み ${locked} 本）`;
-}
-async function doLock(from,to){
-  const recs=await recsInPeriod(from,to);
-  let n=0;
-  for(const r of recs){ if(!r.locked){ r.locked=true; await putRec(r); n++; } }
-  await refreshAll();
-  return n;
-}
-async function lockPeriod(){
-  const {from,to}=getPeriodInputs();
-  if(!from||!to){ toast("期間を指定してください"); return; }
-  const recs=await recsInPeriod(from,to);
-  if(!recs.length){ toast("対象の記録がありません"); return; }
-  if(!confirm(`${from} 〜 ${to} の ${recs.length} 本を確定（請求済みに）します。よろしいですか？`)) return;
-  await doLock(from,to);
-  toast("期間を確定しました🔒");
+    `この期間：シーズン <b>${s}</b> ／ 通常 <b>${n}</b> ／ その他 <b>${o}</b> ／ 合計 <b>${s+n+o}</b> 本`;
 }
 
 /* ============ 帳票 ============ */
@@ -599,14 +588,10 @@ async function buildDoc(kind){
   const grand=sub+tax-wht;
   const whtLabel=settings.whtMode==="standard"?"源泉徴収":`源泉徴収(${settings.wht}%)`;
 
-  // 作成前の確認（期間・本数・金額・二重請求チェック）
-  const lockedInPeriod=recs.filter(r=>r.locked).length;
+  // 作成前の確認（期間・本数・金額）
   const label=kind==="invoice"?"請求書":"報告書";
   const amountLine=kind==="invoice"?`\nご請求額：${money(grand)}（税込）`:"";
-  const dupWarn=lockedInPeriod>0
-    ? `\n\n⚠ この期間には既に「確定（請求済み）」の記録が ${lockedInPeriod} 本含まれています。\n二重請求になっていないか、期間を必ず確認してください。`
-    : "";
-  if(!confirm(`【${label}を作成します】\n対象期間：${jdate(from)} 〜 ${jdate(to)}\nシーズンレンタル ${season}本 ／ 通常レンタル ${normal}本 ／ その他 ${other}本 ／ 合計 ${total}本${amountLine}${dupWarn}\n\nこの内容でよろしいですか？`)) return;
+  if(!confirm(`【${label}を作成します】\n対象期間：${jdate(from)} 〜 ${jdate(to)}\nシーズンレンタル ${season}本 ／ 通常レンタル ${normal}本 ／ その他 ${other}本 ／ 合計 ${total}本${amountLine}\n\nこの内容でよろしいですか？`)) return;
 
   let html="";
   if(kind==="report"){
@@ -677,37 +662,25 @@ async function buildDoc(kind){
     <div style="margin-top:10px;color:#555;font-size:12px">合計本数 ${total} 本（うち撮影記録 ${photos} 本）</div>`;
   }
 
-  lastDoc={kind:kind, from:from, to:to};
   document.getElementById("docView").innerHTML=html;
   document.getElementById("docWrap").style.display="block";
   document.getElementById("docWrap").scrollIntoView({behavior:"smooth"});
 }
-let lastDoc=null;
 function closeDoc(){ document.getElementById("docWrap").style.display="none"; }
 function printDoc(){
   document.getElementById("printArea").innerHTML=document.getElementById("docView").innerHTML;
   window.print();
-  // 請求書を保存/印刷した直後に「請求済みにするか」を確認（締め忘れ防止）
-  if(lastDoc && lastDoc.kind==="invoice"){
-    const ld=lastDoc;
-    setTimeout(async()=>{
-      if(confirm(`請求書を保存/印刷しました。\nこの期間（${ld.from} 〜 ${ld.to}）を『請求済み（確定）』にしますか？\n\n確定すると、次の月に同じ日を含めた場合に二重請求の警告が出ます。\nまだ送っていない場合は「キャンセル」でOK。`)){
-        const n=await doLock(ld.from,ld.to);
-        alert(`この期間の記録を『請求済み』として確定しました（新たに ${n} 本）。`);
-      }
-    }, 700);
-  }
 }
 
 /* ============ CSV / JSON ============ */
 function exportCSV(){
   const all=recCache;
   if(!all.length){ toast("記録がありません"); return; }
-  let csv="﻿記録ID,担当者,登録日,登録時刻,種別,単価,写真,EXIF撮影日時,確定\n";
+  let csv="﻿記録ID,担当者,登録日,登録時刻,種別,単価,写真,EXIF撮影日時\n";
   all.forEach(r=>{
     const d=new Date(r.ts);
     const type=typeLabel(r.type);
-    csv+=`${r.id},${r.worker||""},${ymd(d)},${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())},${type},${r.price},${r.hasPhoto?"有":"無"},${r.exif||""},${r.locked?"確定":""}\n`;
+    csv+=`${r.id},${r.worker||""},${ymd(d)},${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())},${type},${r.price},${r.hasPhoto?"有":"無"},${r.exif||""}\n`;
   });
   saveFile(csv,"ski-tune_"+ymd(new Date())+".csv","text/csv");
 }
@@ -872,14 +845,12 @@ async function refreshHome(){
     const img=r.thumb?`<img src="${r.thumb}">`:`<img alt="">`;
     return `<li>${img}
       <span class="tag ${r.type}">${typeLabel(r.type)}</span>
-      <div class="meta"><div class="t">${tm}</div><div class="s">${money(r.price)}${r.locked?" ・確定":""}</div></div>
+      <div class="meta"><div class="t">${tm}</div><div class="s">${money(r.price)}</div></div>
       <button class="del" onclick="removeRec('${r.id}')">🗑</button></li>`;
   }).join("");
 }
 async function removeRec(id){
-  const r=await getRec(id);
-  if(r&&r.locked){ if(!confirm("この記録は確定済みです。本当に削除しますか？")) return; }
-  else if(!confirm("この記録を削除しますか？")) return;
+  if(!confirm("この記録を削除しますか？")) return;
   await delRec(id); toast("削除しました"); await refreshAll();
 }
 
@@ -923,7 +894,7 @@ function switchTab(t){
   document.getElementById(t).classList.add("active");
   document.querySelectorAll("nav.tabbar button").forEach(b=>b.classList.toggle("active",b.dataset.tab===t));
   if(t==="list") renderList();
-  if(t==="close"){ if(!document.getElementById("periodFrom").value) setDefaultPeriod(); else updatePeriodSummary(); }
+  if(t==="close"){ updateMonthButtons(); if(!document.getElementById("periodFrom").value) setDefaultPeriod(); else updatePeriodSummary(); }
   window.scrollTo(0,0);
 }
 let toastTimer=null;
