@@ -307,7 +307,7 @@
         4. その都度CSV/バックアップを書き出して保管。
       </div>
     </div>
-    <div class="hint" style="text-align:center; margin-top:8px;">v2026.08.21b（写真消え・日付・即時反映 修正版）</div>
+    <div class="hint" style="text-align:center; margin-top:8px;">v2026.08.21c（写真サムネイル iPhone対応 修正版）</div>
   </section>
 
 </div>
@@ -497,19 +497,31 @@ function readAscii(dv,tiff,e,g16,g32){
   return s || null; // "YYYY:MM:DD HH:MM:SS"
 }
 
-/* サムネイル生成 */
-function makeThumb(file){
-  return new Promise((res)=>{
+/* サムネイル生成（iPhoneで確実に動くcreateImageBitmap優先。失敗時はImage方式＋タイムアウト）*/
+function drawThumb(src,w,h){
+  const max=360; const sc=Math.min(1,max/Math.max(w,h));
+  const cw=Math.max(1,Math.round(w*sc)), ch=Math.max(1,Math.round(h*sc));
+  const c=document.createElement("canvas"); c.width=cw; c.height=ch;
+  c.getContext("2d").drawImage(src,0,0,cw,ch);
+  return c.toDataURL("image/jpeg",0.55);
+}
+async function makeThumb(file){
+  // 1) createImageBitmap（iOSで安定・ハングしにくい）
+  try{
+    if(window.createImageBitmap){
+      const bmp=await createImageBitmap(file);
+      const durl=drawThumb(bmp,bmp.width,bmp.height);
+      if(bmp.close) bmp.close();
+      if(durl && durl.length>100) return durl;
+    }
+  }catch(e){}
+  // 2) フォールバック：Image方式。8秒で諦める（固まり防止）
+  return await new Promise((res)=>{
+    let done=false; const finish=v=>{ if(!done){ done=true; res(v); } };
+    const to=setTimeout(()=>finish(null),8000);
     const img=new Image(); const url=URL.createObjectURL(file);
-    img.onload=()=>{
-      const max=360; let{width:w,height:h}=img;
-      const sc=Math.min(1,max/Math.max(w,h)); w=Math.round(w*sc); h=Math.round(h*sc);
-      const c=document.createElement("canvas"); c.width=w; c.height=h;
-      c.getContext("2d").drawImage(img,0,0,w,h);
-      URL.revokeObjectURL(url);
-      res(c.toDataURL("image/jpeg",0.55));
-    };
-    img.onerror=()=>{ URL.revokeObjectURL(url); res(null); };
+    img.onload=()=>{ try{ const d=drawThumb(img,img.naturalWidth||img.width,img.naturalHeight||img.height); clearTimeout(to); URL.revokeObjectURL(url); finish(d); }catch(e){ clearTimeout(to); URL.revokeObjectURL(url); finish(null); } };
+    img.onerror=()=>{ clearTimeout(to); URL.revokeObjectURL(url); finish(null); };
     img.src=url;
   });
 }
@@ -964,6 +976,8 @@ async function updateBackupBanner(){
   // 永続保存を要求（iOS17+）。ホーム画面追加なら7日削除の対象外。
   try{ if(navigator.storage && navigator.storage.persist){ await navigator.storage.persist(); } }catch(e){}
   await openDB();
+  // 以前の版で写真処理が途中で止まった記録(pending)を解放して同期できるように
+  try{ const all=await allRecs(); for(const r of all){ if(r.pending){ r.pending=false; await putRec(r); } } }catch(e){}
   fillSettings();
   setupSettingsForm();
   await refreshHome();
