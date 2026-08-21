@@ -128,6 +128,19 @@
   @keyframes flash{0%{background:#bbf7d0;}100%{background:var(--card);}}
   .empty{color:var(--muted); text-align:center; padding:24px 0; font-size:13px;}
 
+  /* 引っぱって更新（プルダウン） */
+  #ptr{position:fixed; top:0; left:0; right:0; height:0; overflow:hidden;
+    display:flex; align-items:flex-end; justify-content:center; z-index:30;
+    background:var(--bg); pointer-events:none;}
+  #ptr.animate{transition:height .25s ease;}
+  #ptr .ptr-in{display:flex; align-items:center; gap:8px; color:var(--muted);
+    font-size:13px; font-weight:700; padding-bottom:12px; white-space:nowrap;}
+  #ptr .arrow{display:inline-block; transition:transform .2s;}
+  #ptr.ready .arrow{transform:rotate(180deg);}
+  .ptr-spin{width:16px; height:16px; border:2px solid var(--line);
+    border-top-color:var(--header); border-radius:50%; animation:ptrspin .8s linear infinite;}
+  @keyframes ptrspin{to{transform:rotate(360deg);}}
+
   @media print{
     body{background:#fff; padding:0;}
     header,nav.tabbar,.tabbar,.doc-actions,#nav{display:none !important;}
@@ -140,6 +153,7 @@
 </style>
 </head>
 <body>
+<div id="ptr"><div class="ptr-in" id="ptrIn"><span class="arrow">↓</span><span id="ptrText">引っぱって更新</span></div></div>
 <header>
   <h1>⛷ スキーチューンナップ タスク管理</h1>
   <div class="sub" id="periodSub">—</div>
@@ -308,7 +322,7 @@
         4. その都度CSV/バックアップを書き出して保管。
       </div>
     </div>
-    <div class="hint" style="text-align:center; margin-top:8px;">v2026.08.21h（写真はGoogleへ・端末に貯めない）</div>
+    <div class="hint" style="text-align:center; margin-top:8px;">スキーチューンナップ タスク管理　v2026.08.21</div>
   </section>
 
 </div>
@@ -866,7 +880,7 @@ async function refreshHome(){
   document.getElementById("homeNormalCnt").textContent="今期 "+inP.filter(r=>r.type==="normal").length;
   document.getElementById("homeOtherCnt").textContent="今期 "+inP.filter(r=>r.type==="other").length;
   const wname=settings.worker?("担当: "+settings.worker+"　"):"";
-  document.getElementById("periodSub").textContent=`${APP_VERSION}　${wname}締め期間 ${pf.replace(/-/g,"/")} 〜 ${pt.replace(/-/g,"/")}（月末締め）`;
+  document.getElementById("periodSub").textContent=`${wname}締め期間 ${pf.replace(/-/g,"/")} 〜 ${pt.replace(/-/g,"/")}（月末締め）`;
   const wb=document.getElementById("workerBanner");
   if(wb){ if(!settings.worker){ wb.style.display="block"; } else { wb.style.display="none"; } }
 
@@ -999,6 +1013,58 @@ async function updateBackupBanner(){
 // オンライン復帰・再表示で自動再送
 window.addEventListener("online", flushSync);
 document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) flushSync(); });
+
+/* ============ 引っぱって更新（プルダウン） ============ */
+// キャッシュを無視して最新版を取り直す（アドレスは自動でつく更新用パラメータのみ）
+function hardReload(){
+  try{ const u=new URL(location.href); u.searchParams.set("t", Date.now()); location.replace(u.toString()); }
+  catch(e){ location.reload(); }
+}
+(function(){
+  const ptr=document.getElementById("ptr");
+  const txt=document.getElementById("ptrText");
+  const inn=document.getElementById("ptrIn");
+  const TRIGGER=90, MAXH=80;
+  let startY=0, pulling=false, ready=false, busy=false;
+  const atTop=()=> window.scrollY<=0;
+  ptr.addEventListener("transitionend", ()=>{ if(!ready && !busy) ptr.classList.remove("animate"); });
+
+  document.addEventListener("touchstart",(e)=>{
+    if(busy || e.touches.length!==1 || !atTop()){ pulling=false; return; }
+    startY=e.touches[0].clientY; pulling=true; ready=false;
+    ptr.classList.remove("animate");
+  },{passive:true});
+
+  document.addEventListener("touchmove",(e)=>{
+    if(!pulling || busy) return;
+    const dist=e.touches[0].clientY-startY;
+    if(dist<=0 || !atTop()){ ptr.style.height="0px"; ptr.classList.remove("ready"); ready=false; return; }
+    e.preventDefault(); // ネイティブの引っぱり更新を止めて自前の処理に
+    const h=Math.min(dist*0.5, MAXH);
+    ptr.style.height=h+"px";
+    ready = dist>=TRIGGER;
+    ptr.classList.toggle("ready", ready);
+    txt.textContent = ready ? "はなして更新" : "引っぱって更新";
+  },{passive:false});
+
+  function finish(){
+    if(!pulling){ return; }
+    pulling=false;
+    ptr.classList.add("animate");
+    if(ready){
+      busy=true;
+      inn.innerHTML='<span class="ptr-spin"></span><span>最新版を確認中…</span>';
+      ptr.style.height=MAXH+"px";
+      flushSync(); // 未送信があれば送ってから
+      setTimeout(hardReload, 500);
+    } else {
+      ptr.style.height="0px";
+      ptr.classList.remove("ready");
+    }
+  }
+  document.addEventListener("touchend", finish, {passive:true});
+  document.addEventListener("touchcancel", finish, {passive:true});
+})();
 </script>
 </body>
 </html>
