@@ -322,7 +322,7 @@
         4. その都度CSV/バックアップを書き出して保管。
       </div>
     </div>
-    <div class="hint" style="text-align:center; margin-top:8px;">スキーチューンナップ タスク管理　v2026.08.21</div>
+    <div class="hint" style="text-align:center; margin-top:8px;">スキーチューンナップ タスク管理　v2026.08.21c（引っぱって更新・一覧サムネイル）</div>
   </section>
 
 </div>
@@ -443,9 +443,12 @@ camInput.addEventListener("change", async e=>{
   await putRec(rec);   // 写真ごと保存。表示は写真を直接表示するので即出る
   toast(typeLabel(type)+" 1本 登録しました");
   await refreshAll();
-  // EXIF（撮影日時）だけ裏で取得。写真のGoogle送信は flushSync が担当。
+  // 裏で EXIF と 表示用の小さなサムネイルを用意 → 保存 → Google送信(flushSync)。
   (async()=>{
-    try{ const buf=await withTimeout(file.arrayBuffer(), 8000, null); if(buf){ rec.exif=readExifDateTime(buf); await putRec(rec); } }catch(e){}
+    try{ const buf=await withTimeout(file.arrayBuffer(), 8000, null); if(buf){ rec.exif=readExifDateTime(buf); } }catch(e){}
+    // 一覧表示用の小さな画像（フル画質はGoogleドライブ。端末にはこの縮小版だけ残す）
+    try{ const t=await makeThumb(file); if(t){ rec.thumbSmall=t; } }catch(e){}
+    try{ await putRec(rec); await refreshAll(); }catch(e){}
     flushSync();
   })();
 });
@@ -895,6 +898,7 @@ async function refreshHome(){
     const tm=`${d.getMonth()+1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
     let img='<img alt="">';
     if(r.photoBlob){ try{ const u=URL.createObjectURL(r.photoBlob); window._recentUrls.push(u); img=`<img src="${u}">`; }catch(e){} }
+    else if(r.thumbSmall){ img=`<img src="${r.thumbSmall}">`; }  // 端末に残した表示用の縮小版
     else if(r.thumb){ img=`<img src="${r.thumb}">`; }
     else if(r.hasPhoto){ img=`<div class="pico">📷</div>`; }  // 写真はGoogleに保管済み
     return `<li>${img}
@@ -1024,9 +1028,14 @@ function hardReload(){
   const ptr=document.getElementById("ptr");
   const txt=document.getElementById("ptrText");
   const inn=document.getElementById("ptrIn");
-  const TRIGGER=90, MAXH=80;
+  const TRIGGER=70, MAXH=80;
   let startY=0, pulling=false, ready=false, busy=false;
-  const atTop=()=> window.scrollY<=0;
+  const atTop=()=>{
+    const y=Math.max(window.scrollY||0,
+      document.documentElement.scrollTop||0,
+      document.body.scrollTop||0);
+    return y<=1;
+  };
   ptr.addEventListener("transitionend", ()=>{ if(!ready && !busy) ptr.classList.remove("animate"); });
 
   document.addEventListener("touchstart",(e)=>{
