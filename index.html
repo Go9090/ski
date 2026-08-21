@@ -267,6 +267,8 @@
       <label class="f">電話</label><input class="f" id="s_myTel" placeholder="090-0000-0000">
       <label class="f">メール</label><input class="f" id="s_myEmail" placeholder="you@example.com">
       <label class="f">インボイス登録番号（任意）</label><input class="f" id="s_invNo" placeholder="T0000000000000">
+      <label class="f">次の請求書の通し番号</label><input class="f" id="s_invSeq" type="number" min="1" inputmode="numeric" placeholder="1">
+      <div class="hint">請求書番号は「対象月(YYMM)＋この通し番号(3桁)」です（例：通し番号1＝2608001）。請求書を作るたび自動で1増えます。復元後はGoogleの発行履歴から自動でここに入ります。</div>
       <label class="f">振込先（銀行・支店・種別・番号・名義）</label><textarea class="f" id="s_bank" placeholder="○○銀行 ○○支店 普通 1234567 ヤマダタロウ"></textarea>
       <button class="btn primary saveBtn" onclick="saveSettings(false)">設定を保存</button>
     </div>
@@ -312,6 +314,10 @@
         <input type="file" id="importInput" accept=".json" style="display:none" onchange="importJSON(event)">
       </label>
       <div class="warn" style="margin-top:12px;">端末のデータは自動では消えませんが、Safariの履歴消去やアプリ再インストールで消える場合があります。<b>締め日ごとに必ずCSVかバックアップを書き出して、iCloud（ファイル）やメールに保管</b>してください。</div>
+      <div id="restoreRow" style="display:none; margin-top:14px; border-top:1px solid var(--line); padding-top:14px;">
+        <div class="hint" style="margin:0 0 8px;">新しい端末・修理後・データが消えたときに、Googleの記録から一覧・集計・請求書を元通りに復元します。</div>
+        <button class="btn blue" onclick="restoreFromGoogle()">♻️ Googleから復元する</button>
+      </div>
     </div>
     <div class="card">
       <h2>使い方（iPhone）</h2>
@@ -322,7 +328,7 @@
         4. その都度CSV/バックアップを書き出して保管。
       </div>
     </div>
-    <div class="hint" style="text-align:center; margin-top:8px;">スキーチューンナップ タスク管理　v2026.08.21c（引っぱって更新・一覧サムネイル）</div>
+    <div class="hint" style="text-align:center; margin-top:8px;">スキーチューンナップ タスク管理　v2026.08.21e（引っぱって更新・一覧サムネイル・担当者別Google復元・請求番号復元）</div>
   </section>
 
 </div>
@@ -664,8 +670,12 @@ async function buildDoc(kind){
     </div>`;
   } else {
     // 請求書番号：対象月YYMM ＋ 3桁通し番号（例 2608001）。作成のたびに通し番号を1進める。
-    const invNo=to.slice(2,4)+to.slice(5,7)+String(Number(settings.invSeq)||1).padStart(3,"0");
-    settings.invSeq=(Number(settings.invSeq)||1)+1; persistSettings();
+    const usedSeq=Number(settings.invSeq)||1;
+    const ym=to.slice(2,4)+to.slice(5,7);
+    const invNo=ym+String(usedSeq).padStart(3,"0");
+    settings.invSeq=usedSeq+1; persistSettings(); fillSettings();
+    // 発行履歴をGoogleにも残す（端末が壊れても番号を復元できるように・重複防止）
+    try{ logInvoice({ number:invNo, seq:usedSeq, month:ym, from:from, to:to, amount:grand, worker:settings.worker||"" }); }catch(e){}
     html=`
     <h2 style="text-align:center;margin:0 0 16px">請 求 書</h2>
     <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
@@ -788,6 +798,22 @@ async function syncRecord(rec){
     return true; // no-corsは応答を読めないため、送信できたら成功とみなす
   }catch(e){ return false; } // オフライン等
 }
+// 請求書の発行履歴をGoogleへ（recordsとは別タブに保存される）
+function logInvoice(inv){
+  if(!syncEnabled()) return;
+  try{
+    fetch(SYNC_URL, {
+      method:"POST", mode:"no-cors",
+      headers:{"Content-Type":"text/plain;charset=utf-8"},
+      body: JSON.stringify({
+        secret:SYNC_SECRET, kind:"invoice",
+        number:inv.number, seq:inv.seq, month:inv.month,
+        from:inv.from, to:inv.to, amount:inv.amount,
+        worker:inv.worker||"", ts:new Date().toISOString()
+      })
+    });
+  }catch(e){}
+}
 let flushing=false;
 async function flushSync(){
   if(!syncEnabled() || flushing) return;
@@ -828,6 +854,78 @@ async function updateSyncIndicator(){
       ? `送信先：設定済み ／ 未送信 <b>${pend}</b> 本`
       : "";
   }
+  const rr=document.getElementById("restoreRow");
+  if(rr){ rr.style.display=syncEnabled()?"block":"none"; }
+}
+
+/* ============ Googleから復元（JSONPで安全に読み戻す・担当者ごと） ============ */
+function restoreFromGoogle(){
+  if(!syncEnabled()){ toast("同期URLが未設定です"); return; }
+  toast("Googleから読み込み中…");
+  var s=null;
+  const cb="__skiRestore_"+Date.now();
+  const to=setTimeout(()=>{ cleanup(); toast("復元に失敗（時間切れ）。電波を確認して再試行してください"); }, 25000);
+  function cleanup(){ try{ delete window[cb]; }catch(e){} if(s&&s.parentNode){ s.parentNode.removeChild(s); } clearTimeout(to); }
+  window[cb]=function(res){
+    cleanup();
+    if(!res || !res.ok || !Array.isArray(res.records)){ toast("復元に失敗しました（応答が不正）"); return; }
+    openRestoreChooser(res.records, res.invMax||{});
+  };
+  s=document.createElement("script");
+  s.onerror=function(){ cleanup(); toast("復元に失敗（接続エラー）"); };
+  s.src=SYNC_URL+"?action=list&secret="+encodeURIComponent(SYNC_SECRET)+"&callback="+cb+"&t="+Date.now();
+  document.head.appendChild(s);
+}
+function closeRestoreChooser(){ const m=document.getElementById("restoreModal"); if(m&&m.parentNode) m.parentNode.removeChild(m); }
+function openRestoreChooser(records, invMax){
+  // 担当者ごとに集計
+  const g={};
+  records.forEach(r=>{ const w=(r.worker&&String(r.worker).trim())||"（担当者なし）"; (g[w]=g[w]||[]).push(r); });
+  const names=Object.keys(g).sort((a,b)=>g[b].length-g[a].length);
+  const mine=(settings.worker||"").trim();
+  let maxAll=0; Object.keys(invMax).forEach(k=>{ if((Number(invMax[k])||0)>maxAll) maxAll=Number(invMax[k])||0; });
+  window.__restoreSets={ __all__:{recs:records, seq:maxAll, label:"すべて"} };
+  let btns="";
+  names.forEach((w,i)=>{
+    const key="w"+i; window.__restoreSets[key]={recs:g[w], seq:(Number(invMax[w])||0), label:w};
+    const rec = (w===mine)?' <span style="color:#16a34a;font-weight:700">←この端末</span>':'';
+    btns += `<button class="btn ${w===mine?'blue':'ghost'}" style="margin:6px 0;text-align:left" onclick="doRestore('${key}')">👤 ${w}：${g[w].length}本を復元${rec}</button>`;
+  });
+  btns += `<button class="btn ghost" style="margin:10px 0 4px" onclick="doRestore('__all__')">全担当者ぶん（${records.length}本）をまとめて復元</button>`;
+  const html=`<div id="restoreModal" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px">
+    <div style="background:#fff;border-radius:18px;max-width:420px;width:100%;max-height:82vh;overflow:auto;padding:20px;box-shadow:0 20px 50px rgba(0,0,0,.3)">
+      <h2 style="margin:0 0 6px;font-size:18px;color:var(--text)">どの担当者を復元しますか？</h2>
+      <div class="hint" style="margin:0 0 12px">通常は「この端末」の担当者を選びます。請求書の通し番号もその担当者の発行履歴から自動でセットされます。</div>
+      ${btns}
+      <button class="btn ghost" style="margin-top:10px" onclick="closeRestoreChooser()">キャンセル</button>
+    </div></div>`;
+  const wrap=document.createElement("div"); wrap.innerHTML=html; document.body.appendChild(wrap.firstElementChild);
+}
+async function doRestore(key){
+  const set=(window.__restoreSets||{})[key]; if(!set){ closeRestoreChooser(); return; }
+  closeRestoreChooser();
+  toast("復元中…");
+  let added=0;
+  for(const r of set.recs){
+    if(!r || !r.id) continue;
+    if(await getRec(r.id)) continue;
+    let iso; try{ iso=new Date(r.ts).toISOString(); }catch(e){ iso=new Date().toISOString(); }
+    await putRec({
+      id:r.id, ts:iso, type:(r.type||"normal"), worker:r.worker||"",
+      price:Number(r.price)||0, exif:r.exif||"", hasPhoto:!!r.hasPhoto,
+      thumb:null, thumbSmall:null, locked:false, synced:true
+    });
+    added++;
+  }
+  // 請求書の通し番号を発行履歴から引き上げ（重複防止・下げない）
+  const nextSeq=(Number(set.seq)||0)+1;
+  if(nextSeq>(Number(settings.invSeq)||1)){ settings.invSeq=nextSeq; persistSettings(); }
+  fillSettings();
+  await refreshAll();
+  if(document.getElementById("list").classList.contains("active")) renderList();
+  alert("復元しました："+added+" 件（"+set.label+"）\n"
+    +"次の請求書の通し番号："+String(Number(settings.invSeq)||1)+"\n"
+    +"※写真は📷表示（実物はGoogleドライブ）。すでにあった記録は重複していません。");
 }
 async function manualSync(){
   if(!syncEnabled()){ toast("同期URLが未設定です"); return; }
@@ -913,7 +1011,7 @@ async function removeRec(id){
 }
 
 /* ============ 設定UI ============ */
-const SMAP=[["s_worker","worker"],["s_myName","myName"],["s_myAddr","myAddr"],["s_myTel","myTel"],["s_myEmail","myEmail"],["s_invNo","invNo"],["s_bank","bank"],["s_clName","clName"],["s_clAddr","clAddr"],["s_clPerson","clPerson"],["s_priceSeason","priceSeason"],["s_priceNormal","priceNormal"],["s_priceOther","priceOther"],["s_tax","tax"],["s_whtMode","whtMode"],["s_wht","wht"]];
+const SMAP=[["s_worker","worker"],["s_myName","myName"],["s_myAddr","myAddr"],["s_myTel","myTel"],["s_myEmail","myEmail"],["s_invNo","invNo"],["s_invSeq","invSeq"],["s_bank","bank"],["s_clName","clName"],["s_clAddr","clAddr"],["s_clPerson","clPerson"],["s_priceSeason","priceSeason"],["s_priceNormal","priceNormal"],["s_priceOther","priceOther"],["s_tax","tax"],["s_whtMode","whtMode"],["s_wht","wht"]];
 function fillSettings(){ SMAP.forEach(([id,k])=>{ const el=document.getElementById(id); if(el) el.value=settings[k]; }); toggleWht(); updateWorkerSaved(); }
 function updateWorkerSaved(){
   const el=document.getElementById("workerSaved"); if(!el) return;
@@ -928,7 +1026,8 @@ let settingsDirty=false;
 function markSettingsDirty(){ settingsDirty=true; document.querySelectorAll(".saveBtn").forEach(b=>b.classList.add("blink")); }
 function clearDirty(){ settingsDirty=false; document.querySelectorAll(".saveBtn").forEach(b=>b.classList.remove("blink")); }
 function saveSettings(silent){
-  SMAP.forEach(([id,k])=>{ const el=document.getElementById(id); if(el) settings[k]= (["priceSeason","priceNormal","priceOther","cutoff","tax","wht"].includes(k)? Number(el.value) : el.value); });
+  SMAP.forEach(([id,k])=>{ const el=document.getElementById(id); if(el) settings[k]= (["priceSeason","priceNormal","priceOther","cutoff","tax","wht","invSeq"].includes(k)? Number(el.value) : el.value); });
+  if(!(Number(settings.invSeq)>=1)) settings.invSeq=1;
   persistSettings(); refreshHome(); updateWorkerSaved(); clearDirty();
   if(silent){ toast("設定を保存しました"); } else { alert("設定を保存しました。"); }
 }
